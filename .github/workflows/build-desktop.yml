@@ -1,1 +1,73 @@
-.github/workflows/build-desktop.yml
+name: Build desktop launchers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.artifact }}
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            artifact: windows
+            target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+            bundles: nsis
+          - platform: macos-latest
+            artifact: macos
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundles: app,dmg
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri CLI
+        run: npm install
+
+      - name: Build
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Stage Windows portable exe
+        if: matrix.artifact == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/windows | Out-Null
+          Copy-Item "src-tauri/target/${{ matrix.target }}/release/desk-todo.exe" "dist/windows/待办清单.exe"
+
+      - name: Stage macOS app
+        if: matrix.artifact == 'macos'
+        run: |
+          mkdir -p dist/macos
+          cp -R "src-tauri/target/${{ matrix.target }}/release/bundle/macos/待办清单.app" dist/macos/
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: desk-todo-${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**
+            dist/**
