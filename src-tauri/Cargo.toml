@@ -1,6 +1,6 @@
 [package]
 name = "desk-todo"
-version = "0.1.0"
+version = "0.2.0"
 description = "A quiet, offline desktop todo list"
 authors = ["DSH"]
 edition = "2021"

@@ -1,7 +1,7 @@
 {
   "name": "desk-todo",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A quiet, offline desktop todo list built with Tauri 2",
   "scripts": {
     "tauri": "tauri",

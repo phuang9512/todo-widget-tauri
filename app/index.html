@@ -54,6 +54,16 @@
       <circle cx="12" cy="12" r="9"/>
       <path d="M12 7.5v5.2M12 16.4v.1"/>
     </symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24">
+      <path d="M6 9l6 6 6-6"/>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24">
+      <path d="M6 6l12 12M18 6L6 18"/>
+    </symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24">
+      <path d="M4 4.5V10h5.5"/>
+      <path d="M4.8 9.8A8 8 0 1 1 4 14.5"/>
+    </symbol>
   </svg>
 
   <div class="app" id="app">
@@ -64,6 +74,12 @@
           <span id="todayText">今天</span>
         </div>
         <div class="top-actions">
+          <button class="filter-btn" id="filterBtn" type="button" aria-haspopup="dialog"
+                  aria-expanded="false" aria-label="按日期筛选任务" title="按日期筛选">
+            <svg class="icon"><use href="#i-calendar"></use></svg>
+            <span id="filterLabel">全部</span>
+            <svg class="icon filter-caret"><use href="#i-chevron-down"></use></svg>
+          </button>
           <button class="icon-btn" id="themeBtn" type="button" aria-label="切换主题" title="切换主题">
             <svg class="icon icon-moon"><use href="#i-moon"></use></svg>
             <svg class="icon icon-sun"><use href="#i-sun"></use></svg>
@@ -79,7 +95,14 @@
         <h1>待办清单</h1>
         <span class="progress-count" id="progressText">0 / 0</span>
       </div>
-      <p class="summary" id="summaryText">从一件小事开始。</p>
+      <div class="summary-row">
+        <p class="summary" id="summaryText">从一件小事开始。</p>
+        <button class="trash-link" id="trashBtn" type="button" aria-label="打开垃圾桶" title="垃圾桶">
+          <svg class="icon"><use href="#i-trash"></use></svg>
+          <span>垃圾桶</span>
+          <b class="trash-count" id="trashCount" hidden>0</b>
+        </button>
+      </div>
       <div class="progress-track" id="progressTrack" role="progressbar" aria-label="完成进度"
            aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
         <div class="progress-fill" id="progressFill"></div>
@@ -105,11 +128,11 @@
           <span class="spark spark-a"></span>
           <span class="spark spark-b"></span>
           <span class="empty-check">
-            <svg class="icon"><use href="#i-check"></use></svg>
+            <svg class="icon"><use id="emptyIconUse" href="#i-check"></use></svg>
           </span>
         </div>
-        <h2>今天还很轻</h2>
-        <p>写下第一件想做的事，<br>让今天有一个清晰的开始。</p>
+        <h2 id="emptyTitle">今天还很轻</h2>
+        <p id="emptyCopy">写下第一件想做的事，<br>让今天有一个清晰的开始。</p>
         <button type="button" class="empty-cta" id="emptyAddBtn">添加第一项</button>
       </section>
     </main>
@@ -145,6 +168,39 @@
       <button type="button" id="calToday">今天</button>
       <button type="button" id="calClear">清除日期</button>
     </div>
+  </div>
+
+  <div class="filter-menu" id="filterMenu" role="dialog" aria-label="按日期筛选任务" hidden>
+    <div class="filter-menu-head">
+      <span>按日期查看</span>
+      <button type="button" class="filter-close" id="filterClose" aria-label="关闭筛选">
+        <svg class="icon"><use href="#i-close"></use></svg>
+      </button>
+    </div>
+    <div class="filter-options" id="filterOptions"></div>
+  </div>
+
+  <div class="trash-overlay" id="trashOverlay" hidden>
+    <section class="trash-panel" id="trashPanel" role="dialog" aria-modal="true"
+             aria-labelledby="trashTitle">
+      <header class="trash-head">
+        <div>
+          <h2 id="trashTitle">垃圾桶</h2>
+          <p id="trashSub">删除的任务会留在这里，直到清除。</p>
+        </div>
+        <button type="button" class="trash-close" id="trashClose" aria-label="关闭垃圾桶">
+          <svg class="icon"><use href="#i-close"></use></svg>
+        </button>
+      </header>
+      <div class="trash-list" id="trashList"></div>
+      <div class="trash-empty" id="trashEmpty" hidden>
+        <span class="trash-empty-icon" aria-hidden="true">
+          <svg class="icon"><use href="#i-trash"></use></svg>
+        </span>
+        <p>垃圾桶是空的</p>
+        <span>删除的任务会先放在这里。</span>
+      </div>
+    </section>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite">

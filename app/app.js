@@ -2,6 +2,7 @@
   'use strict';
 
   const TASKS_KEY = 'desk-todo.tasks.v1';
+  const TRASH_KEY = 'desk-todo.trash.v1';
   const THEME_KEY = 'desk-todo.theme';
   const MAX_TEXT = 500;
 
@@ -31,6 +32,23 @@
   const composerDateBtn = $('#composerDateBtn');
   const composerDateLabel = $('#composerDateLabel');
   const emptyAddBtn = $('#emptyAddBtn');
+  const emptyTitle = $('#emptyTitle');
+  const emptyCopy = $('#emptyCopy');
+  const emptyIconUse = $('#emptyIconUse');
+
+  const filterBtn = $('#filterBtn');
+  const filterLabel = $('#filterLabel');
+  const filterMenu = $('#filterMenu');
+  const filterOptions = $('#filterOptions');
+  const filterClose = $('#filterClose');
+
+  const trashBtn = $('#trashBtn');
+  const trashCount = $('#trashCount');
+  const trashOverlay = $('#trashOverlay');
+  const trashClose = $('#trashClose');
+  const trashList = $('#trashList');
+  const trashEmpty = $('#trashEmpty');
+  const trashSub = $('#trashSub');
 
   const calendar = $('#calendar');
   const calTitle = $('#calTitle');
@@ -47,10 +65,16 @@
 
   const state = {
     tasks: [],
+    trash: [],
     theme: 'light',
     selectionMode: false,
     selected: new Set(),
     composerDate: null,
+    filterDate: null,
+    filterMenuOpen: false,
+    filterTimer: 0,
+    trashOpen: false,
+    trashTimer: 0,
     copying: false,
     newTaskId: null,
     saveTimer: 0,
@@ -153,8 +177,36 @@
     return state.tasks.find((task) => task.id === id) || null;
   }
 
+  function findTrash(id) {
+    return state.trash.find((task) => task.id === id) || null;
+  }
+
   function findRow(id) {
     return Array.from(taskList.children).find((row) => row.dataset.id === id) || null;
+  }
+
+  function compareTasks(a, b) {
+    if (a.date && !b.date) return -1;
+    if (!a.date && b.date) return 1;
+    if (a.date && b.date && a.date !== b.date) {
+      return a.date < b.date ? 1 : -1;
+    }
+    return (a.createdAt - b.createdAt) || String(a.id).localeCompare(String(b.id));
+  }
+
+  function sortTasks() {
+    state.tasks.sort(compareTasks);
+  }
+
+  function visibleTasks() {
+    return state.filterDate
+      ? state.tasks.filter((task) => task.date === state.filterDate)
+      : state.tasks;
+  }
+
+  function formatDeletedAtExact(value) {
+    const date = new Date(Number(value) || Date.now());
+    return `${date.getMonth() + 1}月${date.getDate()}日 ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
   }
 
   function isOverdue(task) {
@@ -200,6 +252,25 @@
     state.saveTimer = setTimeout(() => writeTasks(false), 260);
   }
 
+  function writeTrash(silent = false) {
+    try {
+      localStorage.setItem(TRASH_KEY, JSON.stringify(state.trash));
+      return true;
+    } catch (error) {
+      if (!silent) {
+        showToast('垃圾桶暂时无法保存，请检查浏览器存储权限', {
+          tone: 'error',
+          duration: 5000,
+        });
+      }
+      return false;
+    }
+  }
+
+  function persistTrash() {
+    writeTrash(false);
+  }
+
   function loadTasks() {
     let raw;
     try {
@@ -230,7 +301,44 @@
           done: Boolean(item.done),
           createdAt: Number(item.createdAt) || Date.now(),
         }))
-        .sort((a, b) => a.createdAt - b.createdAt);
+        .sort(compareTasks);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function loadTrash() {
+    let raw;
+    try {
+      raw = localStorage.getItem(TRASH_KEY);
+    } catch (_) {
+      return [];
+    }
+    if (!raw) return [];
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+
+      const seen = new Set();
+      return parsed
+        .filter((item) => {
+          if (!item || typeof item !== 'object') return false;
+          if (typeof item.id !== 'string' || !item.id) return false;
+          if (typeof item.text !== 'string') return false;
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        })
+        .map((item) => ({
+          id: item.id,
+          text: item.text.slice(0, MAX_TEXT),
+          date: isValidISO(item.date) ? item.date : null,
+          done: Boolean(item.done),
+          createdAt: Number(item.createdAt) || Date.now(),
+          deletedAt: Number(item.deletedAt) || Date.now(),
+        }))
+        .sort((a, b) => b.deletedAt - a.deletedAt);
     } catch (_) {
       return [];
     }
@@ -286,21 +394,39 @@
           </div>
         </div>
         <button class="task-delete" type="button" data-action="delete"
-                aria-label="删除任务" title="删除任务" ${lock ? 'disabled' : ''}>
+                aria-label="移入垃圾桶" title="移入垃圾桶" ${lock ? 'disabled' : ''}>
           <svg class="icon"><use href="#i-trash"></use></svg>
         </button>
       </article>
     `;
   }
 
+  function updateEmptyState() {
+    if (state.filterDate) {
+      emptyState.dataset.mode = 'filter';
+      emptyTitle.textContent = '这一天还没有任务';
+      emptyCopy.innerHTML = '换个日期看看，<br>或者回到全部任务。';
+      emptyAddBtn.textContent = '查看全部';
+      emptyIconUse.setAttribute('href', '#i-calendar');
+    } else {
+      emptyState.dataset.mode = 'add';
+      emptyTitle.textContent = '今天还很轻';
+      emptyCopy.innerHTML = '写下第一件想做的事，<br>让今天有一个清晰的开始。';
+      emptyAddBtn.textContent = '添加第一项';
+      emptyIconUse.setAttribute('href', '#i-check');
+    }
+  }
+
   function renderTasks(options = {}) {
     const { animateNew = false } = options;
+    const visible = visibleTasks();
 
-    if (!state.tasks.length) {
+    if (!visible.length) {
       taskList.innerHTML = '';
       taskList.hidden = true;
       emptyState.hidden = false;
       app.classList.add('is-empty');
+      updateEmptyState();
       return;
     }
 
@@ -308,7 +434,7 @@
     emptyState.hidden = true;
     app.classList.remove('is-empty');
 
-    taskList.innerHTML = state.tasks
+    taskList.innerHTML = visible
       .map((task) => taskMarkup(task, animateNew))
       .join('');
 
@@ -328,10 +454,13 @@
   }
 
   function updateChrome() {
-    const total = state.tasks.length;
-    const done = state.tasks.filter((task) => task.done).length;
+    const visible = visibleTasks();
+    const total = visible.length;
+    const allTotal = state.tasks.length;
+    const done = visible.filter((task) => task.done).length;
     const remaining = total - done;
     const percent = total ? Math.round((done / total) * 100) : 0;
+    const dayLabel = state.filterDate ? relativeDate(state.filterDate) : '';
 
     progressText.textContent = `${done} / ${total}`;
     progressFill.style.width = `${percent}%`;
@@ -343,11 +472,15 @@
     );
 
     if (!total) {
-      summaryText.textContent = '从一件小事开始。';
+      summaryText.textContent = state.filterDate
+        ? `${dayLabel}还没有任务。`
+        : '从一件小事开始。';
     } else if (!remaining) {
       summaryText.textContent = '都完成了，给自己一点掌声。';
     } else if (remaining === total) {
-      summaryText.textContent = `今天有 ${remaining} 件事，一件件来。`;
+      summaryText.textContent = state.filterDate
+        ? `${dayLabel}有 ${remaining} 件事，一件件来。`
+        : `今天有 ${remaining} 件事，一件件来。`;
     } else {
       summaryText.textContent = `还有 ${remaining} 件事，慢慢来。`;
     }
@@ -357,6 +490,7 @@
 
     app.classList.toggle('selecting', selecting);
     app.classList.toggle('is-empty', total === 0);
+    app.classList.toggle('is-filter-empty', Boolean(state.filterDate) && total === 0);
     copyBtn.classList.toggle('active', selecting);
     copyBtn.disabled = total === 0;
     copyLabel.textContent = selecting && selectedCount ? `复制 ${selectedCount} 项` : '复制';
@@ -373,6 +507,29 @@
     selectAllBtn.textContent =
       selecting && total > 0 && selectedCount === total ? '取消全选' : '全选';
 
+    filterBtn.disabled = selecting || allTotal === 0;
+    filterBtn.classList.toggle('active', Boolean(state.filterDate));
+    filterLabel.textContent = state.filterDate ? relativeDate(state.filterDate) : '全部';
+    filterBtn.title = state.filterDate
+      ? `当前筛选：${fullDate(state.filterDate)}`
+      : '按日期筛选任务';
+    filterBtn.setAttribute(
+      'aria-label',
+      state.filterDate
+        ? `按日期筛选任务，当前为${fullDate(state.filterDate)}`
+        : '按日期筛选任务，当前显示全部'
+    );
+
+    const trashTotal = state.trash.length;
+    trashBtn.disabled = selecting;
+    trashCount.hidden = trashTotal === 0;
+    trashCount.textContent = trashTotal > 99 ? '99+' : String(trashTotal);
+    trashBtn.title = trashTotal ? `垃圾桶（${trashTotal}）` : '垃圾桶';
+    trashBtn.setAttribute(
+      'aria-label',
+      trashTotal ? `打开垃圾桶，${trashTotal} 项已删除` : '打开垃圾桶'
+    );
+
     const lock = selecting;
     newTaskInput.disabled = lock;
     composerDateBtn.disabled = lock;
@@ -382,11 +539,12 @@
     taskList.hidden = total === 0;
     emptyState.hidden = total > 0;
 
+    const filterSuffix = state.filterDate ? ` · ${dayLabel}` : '';
     document.title = selecting
       ? '选择要复制的任务'
       : remaining > 0
-        ? `待办清单 · ${remaining}`
-        : '待办清单';
+        ? `待办清单 · ${remaining}${filterSuffix}`
+        : `待办清单${filterSuffix}`;
   }
 
   function syncSelectionRow(id) {
@@ -419,6 +577,226 @@
   }
 
   /* -------------------------------------------------------
+     Date filter / trash
+     ------------------------------------------------------- */
+
+  function renderFilterMenu() {
+    const dates = new Set();
+    state.tasks.forEach((task) => {
+      if (task.date) dates.add(task.date);
+    });
+    if (state.filterDate) dates.add(state.filterDate);
+
+    const options = [
+      `<button type="button" class="filter-option${state.filterDate ? '' : ' is-active'}"
+               data-filter-date="" role="menuitem">
+         <span class="filter-date">全部任务</span>
+         <span class="filter-count">${state.tasks.length}</span>
+       </button>`,
+    ];
+
+    Array.from(dates)
+      .sort((a, b) => (a < b ? 1 : -1))
+      .forEach((date) => {
+        const count = state.tasks.filter((task) => task.date === date).length;
+        const active = state.filterDate === date ? ' is-active' : '';
+        options.push(
+          `<button type="button" class="filter-option${active}" data-filter-date="${date}"
+                   title="${escapeHTML(fullDate(date))}" role="menuitem">
+             <span class="filter-date">${escapeHTML(relativeDate(date))}</span>
+             <span class="filter-count">${count}</span>
+           </button>`
+        );
+      });
+
+    if (!dates.size) {
+      options.push('<p class="filter-hint">还没有设置日期的任务。</p>');
+    }
+
+    filterOptions.innerHTML = options.join('');
+  }
+
+  function positionFilterMenu() {
+    const rect = filterBtn.getBoundingClientRect();
+    const width = filterMenu.offsetWidth || 226;
+    const height = filterMenu.offsetHeight || 240;
+    const margin = 12;
+    const gap = 8;
+
+    let left = Math.min(rect.right - width, window.innerWidth - width - margin);
+    left = Math.max(margin, left);
+
+    let top = rect.bottom + gap;
+    if (top + height > window.innerHeight - margin) {
+      top = rect.top - height - gap;
+    }
+    if (top < margin) top = margin;
+
+    filterMenu.style.left = `${Math.round(left)}px`;
+    filterMenu.style.top = `${Math.round(top)}px`;
+  }
+
+  function openFilterMenu() {
+    if (state.selectionMode || !state.tasks.length) return;
+    if (state.filterMenuOpen) {
+      closeFilterMenu();
+      return;
+    }
+
+    closeCalendar();
+    hideToast();
+    clearTimeout(state.filterTimer);
+    state.filterMenuOpen = true;
+    renderFilterMenu();
+    filterMenu.hidden = false;
+    filterBtn.setAttribute('aria-expanded', 'true');
+    positionFilterMenu();
+
+    requestAnimationFrame(() => {
+      if (!state.filterMenuOpen) return;
+      filterMenu.classList.add('is-open');
+      const active = filterOptions.querySelector('.filter-option.is-active');
+      if (active) active.focus({ preventScroll: true });
+    });
+  }
+
+  function closeFilterMenu(options = {}) {
+    if (!state.filterMenuOpen) return;
+    const { focusButton = false } = options;
+    state.filterMenuOpen = false;
+    filterMenu.classList.remove('is-open');
+    filterBtn.setAttribute('aria-expanded', 'false');
+    clearTimeout(state.filterTimer);
+    state.filterTimer = setTimeout(() => {
+      if (!state.filterMenuOpen) filterMenu.hidden = true;
+    }, 160);
+    if (focusButton) filterBtn.focus({ preventScroll: true });
+  }
+
+  function setFilterDate(date) {
+    if (date && !isValidISO(date)) return;
+    state.filterDate = date || null;
+    closeFilterMenu({ focusButton: true });
+    render({ preserveScroll: false });
+  }
+
+  function trashItemMarkup(task) {
+    const dateText = task.date ? relativeDate(task.date) : '无日期';
+    const dateTitle = task.date ? fullDate(task.date) : '无日期';
+    return `
+      <article class="trash-item" data-id="${escapeHTML(task.id)}">
+        <p class="trash-text">${escapeHTML(task.text || '（无内容）')}</p>
+        <div class="trash-meta">
+          <span title="${escapeHTML(dateTitle)}">
+            <svg class="icon"><use href="#i-calendar"></use></svg>${task.date ? `原定 ${escapeHTML(dateText)}` : '无日期'}
+          </span>
+          <span>· 删除于 ${escapeHTML(formatDeletedAtExact(task.deletedAt))}</span>
+        </div>
+        <div class="trash-actions">
+          <button type="button" class="trash-restore" data-trash-action="restore"
+                  aria-label="恢复任务" title="恢复到原来的日期位置">
+            <svg class="icon"><use href="#i-restore"></use></svg>恢复
+          </button>
+          <button type="button" class="trash-clear" data-trash-action="clear"
+                  aria-label="永久清除任务" title="直接清除，不再显示">
+            清除
+          </button>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderTrash() {
+    const count = state.trash.length;
+    const badge = count > 99 ? '99+' : String(count);
+
+    trashCount.hidden = count === 0;
+    trashCount.textContent = badge;
+    trashSub.textContent = count
+      ? `共 ${count} 项 · 恢复后回到原来的日期位置`
+      : '删除的任务会留在这里，直到清除。';
+
+    if (!count) {
+      trashList.innerHTML = '';
+      trashList.hidden = true;
+      trashEmpty.hidden = false;
+      return;
+    }
+
+    trashList.hidden = false;
+    trashEmpty.hidden = true;
+    trashList.innerHTML = state.trash.map(trashItemMarkup).join('');
+  }
+
+  function openTrash() {
+    if (state.selectionMode || state.trashOpen) return;
+    closeCalendar();
+    closeFilterMenu();
+    hideToast();
+    state.trashOpen = true;
+    renderTrash();
+    trashOverlay.hidden = false;
+    app.inert = true;
+    requestAnimationFrame(() => {
+      if (state.trashOpen) trashOverlay.classList.add('is-open');
+    });
+    setTimeout(() => trashClose.focus({ preventScroll: true }), 0);
+  }
+
+  function closeTrash() {
+    if (!state.trashOpen) return;
+    state.trashOpen = false;
+    clearTimeout(state.trashTimer);
+    trashOverlay.classList.remove('is-open');
+    app.inert = false;
+    state.trashTimer = setTimeout(() => {
+      if (!state.trashOpen) trashOverlay.hidden = true;
+    }, 180);
+    trashBtn.focus({ preventScroll: true });
+  }
+
+  function restoreTaskFromTrash(id) {
+    const index = state.trash.findIndex((task) => task.id === id);
+    if (index < 0) return false;
+
+    const [record] = state.trash.splice(index, 1);
+    const task = {
+      id: record.id,
+      text: record.text,
+      date: record.date,
+      done: record.done,
+      createdAt: record.createdAt,
+    };
+    if (findTask(task.id)) task.id = uid();
+
+    state.tasks.push(task);
+    sortTasks();
+    if (state.filterDate && task.date !== state.filterDate) {
+      state.filterDate = null;
+    }
+
+    persistTasks(true);
+    persistTrash();
+    render({ preserveScroll: false });
+    if (state.trashOpen) renderTrash();
+    showToast('已恢复任务', { duration: 2200 });
+
+    const row = findRow(task.id);
+    if (row) row.scrollIntoView({ block: 'nearest' });
+    return true;
+  }
+
+  function clearTrashTask(id) {
+    const index = state.trash.findIndex((task) => task.id === id);
+    if (index < 0) return;
+    state.trash.splice(index, 1);
+    persistTrash();
+    renderTrash();
+    updateChrome();
+    showToast('已清除，无法恢复', { duration: 2200 });
+  }
+
+  /* -------------------------------------------------------
      Task actions
      ------------------------------------------------------- */
 
@@ -447,30 +825,30 @@
 
     const [task] = state.tasks.splice(index, 1);
     state.selected.delete(id);
+    state.trash.unshift({ ...task, deletedAt: Date.now() });
+
     persistTasks(true);
+    persistTrash();
     render({ preserveScroll: true });
 
-    showToast('已删除 1 项', {
+    showToast('已移入垃圾桶', {
       actionLabel: '撤销',
       duration: 5000,
       onAction: () => {
-        if (findTask(task.id)) return;
-        state.tasks.splice(Math.min(index, state.tasks.length), 0, task);
-        state.newTaskId = task.id;
-        persistTasks(true);
-        render({ preserveScroll: false, animateNew: true });
-        showToast('已恢复');
+        if (restoreTaskFromTrash(task.id)) return;
+        showToast('这项任务已经不在垃圾桶里', { tone: 'error', duration: 2200 });
       },
     });
   }
 
   function enterSelectionMode() {
-    if (!state.tasks.length) {
-      showToast('先添加一项任务', { duration: 1800 });
+    if (!visibleTasks().length) {
+      showToast('当前没有可复制的任务', { duration: 1800 });
       return;
     }
 
     closeCalendar();
+    closeFilterMenu();
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
@@ -507,15 +885,15 @@
 
   function toggleSelectAll() {
     if (!state.selectionMode) return;
+    const visible = visibleTasks();
     const allSelected =
-      state.tasks.length > 0 &&
-      state.tasks.every((task) => state.selected.has(task.id));
+      visible.length > 0 && visible.every((task) => state.selected.has(task.id));
 
     state.selected = allSelected
       ? new Set()
-      : new Set(state.tasks.map((task) => task.id));
+      : new Set(visible.map((task) => task.id));
 
-    state.tasks.forEach((task) => syncSelectionRow(task.id));
+    visible.forEach((task) => syncSelectionRow(task.id));
     updateChrome();
   }
 
@@ -576,7 +954,7 @@
       return;
     }
 
-    const lines = state.tasks
+    const lines = visibleTasks()
       .filter((task) => state.selected.has(task.id))
       .map((task) => task.text.replace(/\r?\n+/g, ' ').trim())
       .filter(Boolean);
@@ -625,6 +1003,9 @@
     };
 
     state.tasks.push(task);
+    sortTasks();
+    const filterCleared = Boolean(state.filterDate && task.date !== state.filterDate);
+    if (filterCleared) state.filterDate = null;
     state.newTaskId = task.id;
     state.composerDate = todayISO();
     newTaskInput.value = '';
@@ -632,7 +1013,12 @@
     updateComposerDate();
     persistTasks(true);
     render({ preserveScroll: false, animateNew: true });
-    taskList.scrollTop = taskList.scrollHeight;
+
+    const row = findRow(task.id);
+    if (row) row.scrollIntoView({ block: 'nearest' });
+    if (filterCleared) {
+      showToast('已添加，切回全部任务', { duration: 1800 });
+    }
     newTaskInput.focus({ preventScroll: true });
   }
 
@@ -655,6 +1041,7 @@
       return;
     }
 
+    closeFilterMenu();
     clearTimeout(state.calendar.hideTimer);
     state.calendar.hideTimer = 0;
 
@@ -827,10 +1214,15 @@
     }
 
     task.date = iso;
+    sortTasks();
+    if (state.filterDate && task.date !== state.filterDate) {
+      state.filterDate = null;
+    }
     persistTasks(true);
     render({ preserveScroll: true });
     closeCalendar();
     const row = findRow(task.id);
+    if (row) row.scrollIntoView({ block: 'nearest' });
     const chip = row ? $('.date-chip', row) : null;
     if (chip) chip.focus({ preventScroll: true });
   }
@@ -1062,7 +1454,36 @@
     selectAllBtn.addEventListener('click', toggleSelectAll);
     cancelSelectBtn.addEventListener('click', () => exitSelectionMode());
     emptyAddBtn.addEventListener('click', () => {
+      if (emptyState.dataset.mode === 'filter') {
+        setFilterDate(null);
+        return;
+      }
       newTaskInput.focus({ preventScroll: true });
+    });
+
+    filterBtn.addEventListener('click', openFilterMenu);
+    filterClose.addEventListener('click', () => closeFilterMenu({ focusButton: true }));
+    filterOptions.addEventListener('click', (event) => {
+      const option = event.target.closest('[data-filter-date]');
+      if (!option) return;
+      setFilterDate(option.dataset.filterDate || null);
+    });
+
+    trashBtn.addEventListener('click', openTrash);
+    trashClose.addEventListener('click', closeTrash);
+    trashOverlay.addEventListener('click', (event) => {
+      if (event.target === trashOverlay) closeTrash();
+    });
+    trashList.addEventListener('click', (event) => {
+      const action = event.target.closest('[data-trash-action]');
+      if (!action) return;
+      const item = action.closest('.trash-item');
+      if (!item) return;
+      if (action.dataset.trashAction === 'restore') {
+        restoreTaskFromTrash(item.dataset.id);
+      } else if (action.dataset.trashAction === 'clear') {
+        clearTrashTask(item.dataset.id);
+      }
     });
 
     addBtn.addEventListener('click', addTaskFromComposer);
@@ -1075,7 +1496,14 @@
     taskList.addEventListener('keydown', handleTaskListKeydown);
     taskList.addEventListener('paste', handleTaskListPaste);
     taskList.addEventListener('focusout', handleTaskListFocusOut);
-    taskList.addEventListener('scroll', closeCalendar, { passive: true });
+    taskList.addEventListener(
+      'scroll',
+      () => {
+        closeCalendar();
+        closeFilterMenu();
+      },
+      { passive: true }
+    );
 
     calPrev.addEventListener('click', () => shiftCalendarMonth(-1));
     calNext.addEventListener('click', () => shiftCalendarMonth(1));
@@ -1124,8 +1552,24 @@
       if (action) action();
     });
 
+    document.addEventListener('pointerdown', (event) => {
+      if (!state.filterMenuOpen) return;
+      if (filterMenu.contains(event.target) || filterBtn.contains(event.target)) {
+        return;
+      }
+      closeFilterMenu();
+    }, true);
+
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
+        if (state.trashOpen) {
+          closeTrash();
+          return;
+        }
+        if (state.filterMenuOpen) {
+          closeFilterMenu({ focusButton: true });
+          return;
+        }
         if (state.calendar.open) {
           closeCalendar();
           return;
@@ -1155,6 +1599,7 @@
 
     window.addEventListener('resize', () => {
       if (state.calendar.open) closeCalendar();
+      if (state.filterMenuOpen) closeFilterMenu();
     });
 
     document.addEventListener('visibilitychange', () => {
@@ -1192,6 +1637,8 @@
 
   function init() {
     state.tasks = loadTasks();
+    const liveIds = new Set(state.tasks.map((task) => task.id));
+    state.trash = loadTrash().filter((task) => !liveIds.has(task.id));
     state.theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
     state.lastToday = todayISO();
     state.composerDate = todayISO();
@@ -1200,6 +1647,7 @@
     updateTodayLabel();
     updateComposerDate();
     bindEvents();
+    renderTrash();
     render({ preserveScroll: false });
 
     newTaskInput.focus({ preventScroll: true });

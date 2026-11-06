@@ -75,6 +75,8 @@ src-tauri/tauri.conf.json
 
 5. 下方 Commit changes 里写一句 `Add Tauri todo app`，点 **Commit changes**。
 
+> **上传后先看 Code 页面**：如果根目录没有 `.github`，Actions 一定会显示「Get started with GitHub Actions」，而不是我们的 workflow。GitHub 网页上传有时会漏掉点开头的文件夹，直接做下面的手动补文件步骤。
+
 ### 如果 `.github` 没上传成功
 
 GitHub 网页有时候会漏掉点开头的文件夹。可以手动补：
@@ -90,6 +92,12 @@ GitHub 网页有时候会漏掉点开头的文件夹。可以手动补：
 4. Commit。
 
 只要这个文件在默认分支的根目录下，Actions 就能识别。
+
+也可以直接用这个地址打开新建文件页（把用户名和仓库名换成你自己的）：
+
+```text
+https://github.com/<用户名>/<仓库名>/new/main?filename=.github/workflows/build-desktop.yml
+```
 
 ---
 
@@ -193,9 +201,12 @@ Actions 的 artifact 默认保留 90 天。想长期分享，可以发 Release�
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | Actions 里没有 workflow | `.github/workflows/build-desktop.yml` 不在仓库根目录；或仓库多套了一层文件夹 |
+| Actions 页面显示「Get started with GitHub Actions」 | 仓库还没有任何 workflow 文件，按第 3 步手动补 `.github/workflows/build-desktop.yml` |
 | 点 Run workflow 没反应 | 确认 workflow 在默认分支 `main` 上；确认你有仓库写权限 |
 | `npm install` 失败 | 检查 Node 版本（工作流用 20）；重跑一次；看日志里的具体包名 |
 | Rust 编译失败 | 看失败 job 的日志；Windows 需要 MSVC，macOS 需要 Xcode；GitHub 的 runner 已预装 |
+| 构建成功但出现 `Node.js 20 is deprecated` | 这是 GitHub 官方 action 自身的运行时提示，不是你的项目报错，不影响产物；可忽略 |
+| macOS 提示 `arm64 runners may experience longer queue times` | GitHub 的容量提示，只是排队久一点，不是失败 |
 | 构建成功但 artifact 为空 | 看 `Stage Windows portable exe` / `Stage macOS app` 步骤是否报路径不存在；检查 Tauri 输出目录 |
 | Windows 打不开 | 先装 WebView2；SmartScreen 选「仍要运行」 |
 | macOS 提示未验证/已损坏 | 用 `.dmg` 而不是裸 `.app`；右键打开；未签名应用需要手动放行 |

@@ -6,6 +6,8 @@
 
 工程、图标、双平台构建脚本和 GitHub Actions 已就绪。**仓库不包含编译好的 `.exe` / `.app`**，因为 Tauri 的 macOS 与 Windows 产物需要分别在对应系统上编译；当前开发机没有 Rust 工具链，也无法访问 crates.io / GitHub。
 
+前端已同步静态版的垃圾桶与日期筛选功能。注意：此前从 Actions 下载的旧 exe 不包含这些新增功能，需要用最新源码重新构建。
+
 不想在本机装 Rust，可以直接看 [GITHUB_BUILD_GUIDE.md](GITHUB_BUILD_GUIDE.md)：从建仓库、上传文件到在 Actions 里点击构建、下载 `.exe` / `.dmg`，有完整的分步说明。
 
 ## 目录
@@ -49,6 +51,16 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 - 安装包：`src-tauri\target\release\bundle\nsis\`
 
 未签名时 Windows SmartScreen 可能提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」即可。正式分发建议配置代码签名证书。
+
+### Windows 首次启动闪退
+
+如果双击后窗口没有出现，或事件日志里是 `0xc0000409` / `Failed to setup app: 拒绝访问 (os error 5)`，通常是 WebView2 首次创建用户数据目录失败。当前源码已在 `src-tauri/src/lib.rs` 中调用 `ensure_windows_data_dir()` 预创建：
+
+```text
+%LOCALAPPDATA%\com.dsh.desktodo
+```
+
+旧构建也可以手动创建一次这个目录，再启动应用。若提示「请求的资源在使用中」，先彻底退出应用（必要时重启电脑），再启动。
 
 ### macOS
 
